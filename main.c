@@ -5,6 +5,8 @@
 #include <pthread.h>
 #include <termios.h>
 #include <unistd.h>
+#include <wchar.h>
+#include <locale.h>
 
 #define MAX_IMG_WIDTH 256
 
@@ -29,14 +31,15 @@ volatile int shouldUpdate = 1;
 void zoomASCIIImg(char *filePath);
 int getNumberOfLines(char *filePath);
 int getNumberOfRows(char *filePath);
-void renderWithZoom(char **img);
+void renderWithZoom(wchar_t **img);
 void *listenToMovement(void *arg);
-char *getZoomedImg(char **img);
+wchar_t *getZoomedImg(wchar_t **img);
 int getCtrlInput();
 int isControlKey(Directions);
 
 int main(int argc, char const *argv[]) {
-	zoomASCIIImg("./ascii-images/EACH-map-pureASCII.txt");
+	setlocale(LC_ALL, "");
+	zoomASCIIImg("./ascii-images/EACH-map.txt");
 	return 0;
 }
 
@@ -48,7 +51,7 @@ void zoomASCIIImg(char *filePath) {
 	zoomHeight = 10;
 
 	// image in a 2D array format
-	char **img = malloc(imgHeight * sizeof(char *));
+	wchar_t **img = malloc(imgHeight * sizeof(wchar_t *));
 
 	FILE *ASCIIImgFile = fopen(filePath, "r");
 	if (!ASCIIImgFile) {
@@ -56,15 +59,21 @@ void zoomASCIIImg(char *filePath) {
 	}
 
 	// filling the img contents
-	char buffer[imgWidth * 4 + 1];
+	wchar_t buffer[imgWidth + 1];
+
+	for(int i = 0; i < imgWidth; i++) {
+		buffer[i] = L'A';
+	}
+	buffer[imgWidth] = L'\0';
+
 	int currLine = 0;
-	while (fgets(buffer, sizeof(buffer), ASCIIImgFile) && currLine < imgHeight) {
-		img[currLine] = malloc((strlen(buffer)) * sizeof(char));
+	while (fgetws(buffer, sizeof(buffer), ASCIIImgFile) && currLine < imgHeight) {
+		img[currLine] = malloc((wcslen(buffer) + 1) * sizeof(wchar_t) );
 		if (!img[currLine]) {
 			exit(1);
 		}
-		strcpy(img[currLine], buffer);
-		img[currLine][strlen(buffer)] = '\0';
+		wcscpy(img[currLine], buffer);
+		img[currLine][wcslen(buffer)] = L'\0';
 		currLine++;
 	}
 	fclose(ASCIIImgFile);
@@ -96,9 +105,9 @@ int getNumberOfRows(char *filePath) {
 		}
 		int maxLength = 0;
 		int currentLength = 0;
-		char ch;
-		while ((ch = fgetc(file)) != EOF) {
-			if (ch == '\n') {
+		wchar_t ch;
+		while ((ch = fgetwc(file)) != EOF) {
+			if (ch == L'\n') {
 				if (currentLength > maxLength) {
 					maxLength = currentLength;
 				}
@@ -114,7 +123,7 @@ int getNumberOfRows(char *filePath) {
 		return maxLength;
 }
 
-void renderWithZoom(char **img) {
+void renderWithZoom(wchar_t **img) {
 	struct termios old_conf, new_conf;
 	tcgetattr(STDIN_FILENO, &old_conf);
 	new_conf = old_conf;
@@ -124,14 +133,14 @@ void renderWithZoom(char **img) {
 	pthread_t movementThread;
 	pthread_create(&movementThread, NULL, listenToMovement, NULL);
 
-	char *zoomedImg;
+	wchar_t *zoomedImg;
 	while(1) {
 		if(shouldUpdate) {
 			zoomedImg = getZoomedImg(img);
 			system("clear");
-			printf("%s", zoomedImg);
-			free(zoomedImg);
+			printf("%ls", zoomedImg);
 			shouldUpdate = 0;
+			free(zoomedImg);
 		}
 	}
 
@@ -188,18 +197,24 @@ void *listenToMovement(void *arg) {
 	}
 }
 
-char *getZoomedImg(char **img) {
-	// the * 4 is to be able to hold emojis and such (i don't like using wide chars)
-	char *zoomedImg = malloc(zoomWidth * zoomHeight * sizeof(char) * 4 + 1);
-	for(int i = 0; i < zoomWidth * zoomHeight * 4 + 1; i++) {
-		zoomedImg[i] = '\0';
+wchar_t *getZoomedImg(wchar_t **img) {
+	wchar_t *zoomedImg = malloc((zoomWidth * zoomHeight + 1) * sizeof(wchar_t));
+
+	if(zoomedImg == NULL) {
+		printf("couldn't malloc zoomedImg");
+		exit(0);
 	}
 
-	for (int i = 0; i < zoomHeight; ++i){
-		strncat(zoomedImg, &(img[zoomY + i][zoomX]), zoomWidth);
-		zoomedImg[strlen(zoomedImg)] = '\n';
-		zoomedImg[strlen(zoomedImg) + 1] = '\0';
+	for(int i = 0; i < zoomWidth * zoomHeight + 1; i++) {
+		zoomedImg[i] = L'\0';
 	}
+
+	for (int i = 0; i < zoomHeight; i++){
+		wcsncat(zoomedImg, &(img[zoomY + i][zoomX]), zoomWidth);
+		zoomedImg[wcslen(zoomedImg)] = L'\n';
+		zoomedImg[wcslen(zoomedImg) + 1] = L'\0';
+	}
+	zoomedImg[zoomWidth * zoomHeight] = L'\0';
 	return zoomedImg;
 }
 
