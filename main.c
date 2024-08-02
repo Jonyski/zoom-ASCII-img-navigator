@@ -33,9 +33,12 @@ int getNumberOfLines(char *filePath);
 int getNumberOfRows(char *filePath);
 void renderWithZoom(wchar_t **img);
 void *listenToMovement(void *arg);
-wchar_t *getZoomedImg(wchar_t **img);
+wchar_t **getZoomedImg(wchar_t **img);
+int getNumOfEmojis(wchar_t *str);
 int getCtrlInput();
-int isControlKey(Directions);
+int isControlKey(Directions d);
+void printZoomedImg(wchar_t **zoomedImg);
+void freeZoomedImg(wchar_t **zoomedImg);
 
 int main(int argc, char const *argv[]) {
 	setlocale(LC_ALL, "");
@@ -133,14 +136,14 @@ void renderWithZoom(wchar_t **img) {
 	pthread_t movementThread;
 	pthread_create(&movementThread, NULL, listenToMovement, NULL);
 
-	wchar_t *zoomedImg;
+	wchar_t **zoomedImg;
 	while(1) {
 		if(shouldUpdate) {
 			zoomedImg = getZoomedImg(img);
 			system("clear");
-			printf("%ls", zoomedImg);
+			printZoomedImg(zoomedImg);
 			shouldUpdate = 0;
-			free(zoomedImg);
+			freeZoomedImg(zoomedImg);
 		}
 	}
 
@@ -150,72 +153,99 @@ void renderWithZoom(wchar_t **img) {
 
 void *listenToMovement(void *arg) {
 	while(1) {
-		//Directions d = getCtrlInput();
 		Directions d = getchar();
 		switch(d) {
 			case 'w':
-				zoomY > 0 ? zoomY-- : 0;
-				shouldUpdate = 1;
+				if(zoomY > 0) {
+					zoomY--;
+					shouldUpdate = 1;
+					break;
+				}
+				shouldUpdate = 0;
 				break;
 			case 's':
-				zoomY < imgHeight - zoomHeight - 1 ? zoomY++ : 0;
-				shouldUpdate = 1;
+				if(zoomY < imgHeight - zoomHeight) {
+					zoomY++;
+					shouldUpdate = 1;
+					break;
+				}
+				shouldUpdate = 0;
 				break;
 			case 'a':
-				zoomX > 0 ? zoomX-- : 0;
-				shouldUpdate = 1;
+				if(zoomX > 0) {
+					zoomX--;
+					shouldUpdate = 1;
+					break;
+				}
+				shouldUpdate = 0;
 				break;
 			case 'd':
-				zoomX < imgWidth - zoomWidth - 1 ? zoomX++ : 0;
-				shouldUpdate = 1;
+				if(zoomX < imgWidth - zoomWidth - 1) {
+					zoomX++;
+					shouldUpdate = 1;
+					break;
+				}
+				shouldUpdate = 0;
 				break;
 			default:
 				shouldUpdate = 0;
 				break;
 		}
-		// switch(d) {
-		// 	case KEY_UP:
-		// 		zoomY > 0 ? zoomY-- : 0;
-		// 		shouldUpdate = 1;
-		// 		break;
-		// 	case KEY_DOWN:
-		// 		zoomY < imgHeight - zoomHeight - 1 ? zoomY++ : 0;
-		// 		shouldUpdate = 1;
-		// 		break;
-		// 	case KEY_LEFT:
-		// 		zoomX > 0 ? zoomX-- : 0;
-		// 		shouldUpdate = 1;
-		// 		break;
-		// 	case KEY_RIGHT:
-		// 		zoomX < imgWidth - zoomWidth - 1 ? zoomX++ : 0;
-		// 		shouldUpdate = 1;
-		// 		break;
-		// 	case EMPTY:
-		// 		shouldUpdate = 0;
-		// 		break;
-		// }
 	}
 }
 
-wchar_t *getZoomedImg(wchar_t **img) {
-	wchar_t *zoomedImg = malloc((zoomWidth * zoomHeight + 1) * sizeof(wchar_t));
+wchar_t **getZoomedImg(wchar_t **img) {
+	wchar_t **zoomedImg = malloc(zoomHeight * sizeof(wchar_t *));
 
 	if(zoomedImg == NULL) {
 		printf("couldn't malloc zoomedImg");
-		exit(0);
+		exit(1);
 	}
 
-	for(int i = 0; i < zoomWidth * zoomHeight + 1; i++) {
-		zoomedImg[i] = L'\0';
+	for(int i = 0; i < zoomHeight; i++) {
+		zoomedImg[i] = malloc((zoomWidth + 2) * sizeof(wchar_t));
+		zoomedImg[i][0] = L'\0';
 	}
 
-	for (int i = 0; i < zoomHeight; i++){
-		wcsncat(zoomedImg, &(img[zoomY + i][zoomX]), zoomWidth);
-		zoomedImg[wcslen(zoomedImg)] = L'\n';
-		zoomedImg[wcslen(zoomedImg) + 1] = L'\0';
+	for(int i = 0; i < zoomHeight; i++) {
+		// how many emojis are to the left of our view
+		int emojiCount = getNumOfEmojis(img[zoomY + i]);
+		for(int i = 0; i < emojiCount; i++){
+			wcscat(zoomedImg[i], L"  ");
+		}
+		wcsncat(zoomedImg[i], &(img[zoomY + i][zoomX]), zoomWidth - emojiCount);
+		int lastPos = wcslen(zoomedImg[i]);
+		if(zoomedImg[i][lastPos - 1] != L'\n') {
+			wcscat(zoomedImg[i], L"\n");
+		}
+		// zoomedImg[pos] = L'\n';
+		// zoomedImg[pos + 1] = L'\0';		
 	}
-	zoomedImg[zoomWidth * zoomHeight] = L'\0';
+
 	return zoomedImg;
+}
+
+int getNumOfEmojis(wchar_t *str) {
+	int count = 0; 
+	for(int i = 0; i < zoomX; i++) {
+		if(str[i] >= 0x1F300 && str[i] <= 0x1FAF6) {
+			count++;
+		}
+	}
+	return count;
+}
+
+void printZoomedImg(wchar_t **zoomedImg) {
+	for(int i = 0; i < zoomHeight; i++){
+		wprintf(L"%ls", zoomedImg[i]);
+	}
+}
+
+void freeZoomedImg(wchar_t **zoomedImg) {
+	for(int i = 0; i < zoomHeight; i++){
+		free(zoomedImg[i]);
+	}
+	//free(zoomedImg);
 }
 
 int getCtrlInput() {
